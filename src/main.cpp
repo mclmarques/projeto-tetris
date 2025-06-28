@@ -42,6 +42,15 @@ struct ActivePiece {
 };
 ActivePiece currentPiece;
 
+/**
+ * @brief Spawns a new random Tetris piece at the top of the field.
+ * 
+ * Selects a random piece from the PIECES[] array, assigns it to the 
+ * global currentPiece variable, and places it horizontally centered 
+ * and vertically just above the visible playfield.
+ * 
+ * This function should be called after a piece has locked or at game start.
+ */
 void spawnRandomPiece() {
   byte index = random(NUM_PIECES);
   currentPiece.def = &PIECES[index];
@@ -57,6 +66,20 @@ void spawnRandomPiece() {
   Serial.println(index);
 }
 
+/**
+ * @brief Checks if a piece placed at a specific position would collide
+ *        with the field boundaries or filled blocks.
+ * 
+ * @param x X-coordinate on the field (column position for the piece's top-left corner).
+ * @param y Y-coordinate on the field (row position for the piece's top-left corner).
+ * @param def Pointer to the piece definition to check against.
+ * @return true If any part of the piece would be out of bounds or overlap filled blocks.
+ * @return false If the piece can be placed safely at the given position.
+ * 
+ * This function loops over all 1s in the piece shape matrix and calculates
+ * where they would fall on the field based on the input (x, y). If any block 
+ * would fall outside bounds or onto a filled cell, it returns true (collision).
+ */
 bool checkCollision(int x, int y, const PieceDef* def) {
   for (byte r = 0; r < PIECE_SIZE; r++) {
     for (byte c = 0; c < PIECE_SIZE; c++) {
@@ -75,6 +98,15 @@ bool checkCollision(int x, int y, const PieceDef* def) {
   return false;
 }
 
+/**
+ * @brief Attempts to move the current piece by a delta offset (dx, dy).
+ * 
+ * @param dx Change in the X direction (e.g., -1 for left, +1 for right).
+ * @param dy Change in the Y direction (e.g., +1 for downward movement).
+ * 
+ * If the move would result in a collision (checked via checkCollision),
+ * the move is rejected and the piece remains in place.
+ */
 void tryMove(int dx, int dy) {
   int newX = currentPiece.x + dx;
   int newY = currentPiece.y + dy;
@@ -85,6 +117,20 @@ void tryMove(int dx, int dy) {
   }
 }
 
+/**
+ * @brief Reads the current button inputs and applies movement or rotation
+ *        to the falling piece.
+ * 
+ * Input pins must be defined for left, right, down, and rotate. When a button
+ * is pressed (active LOW), the corresponding action is triggered:
+ * 
+ * - Left: Move piece one cell to the left
+ * - Right: Move piece one cell to the right
+ * - Down: Move piece one cell downward (soft drop)
+ * - Rotate: TODO – rotate the current piece
+ * 
+ * This function should be called repeatedly in the main loop.
+ */
 void handlePieceControl() {
   if (digitalRead(BTN_LEFT) == LOW) {
     tryMove(-1, 0);  // Move left
