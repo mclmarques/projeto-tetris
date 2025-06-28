@@ -8,13 +8,13 @@
 
 #define PIECE_SIZE 4
 
-struct Piece {
+struct PieceDef {
     byte shape[PIECE_SIZE][PIECE_SIZE];
     byte width;
     byte height;
 };
 
-const Piece PIECES[] = {
+const PieceDef PIECES[] = {
     // I-Piece (vertical line)
     {
         {
@@ -71,6 +71,6 @@ const Piece PIECES[] = {
     }
 };
 
-const byte NUM_PIECES = sizeof(PIECES) / sizeof(Piece);
+const byte NUM_PIECES = sizeof(PIECES) / sizeof(PieceDef);
 
 #endif
