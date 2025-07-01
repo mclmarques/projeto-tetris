@@ -26,7 +26,7 @@ enum GameState : byte {
   STATE_LOST
 };
 byte score = 0;                     // score counter (0–3 max)
-const byte WIN_SCORE      = 3;       // points needed to win
+const byte WIN_SCORE = 3;       // points needed to win
 unsigned long lastScoreTime = 0;   // millis() of last point
 GameState gameState = STATE_PLAYING;
 const unsigned long SCORE_TIMEOUT = 15000UL;  // 15 seconds (ms)
@@ -35,10 +35,12 @@ const unsigned long SCORE_TIMEOUT = 15000UL;  // 15 seconds (ms)
 
 // Stores current falling piece’s shape, rotation, and position on field.
 struct ActivePiece {
-  const PieceDef* def;  // pointer to static piece definition
+  byte shape[PIECE_SIZE][PIECE_SIZE];  // mutable copy from one of the available pieces on the pieces.h
   byte rotation;             // which of the 4 orientations (0–3)
   int x;                     // horizontal position (can be negative)
   int y;                     // vertical position (can be negative)
+  byte width;
+  byte height;
 };
 ActivePiece currentPiece;
 
@@ -53,18 +55,16 @@ ActivePiece currentPiece;
  */
 void spawnRandomPiece() {
   byte index = random(NUM_PIECES);
-  currentPiece.def = &PIECES[index];
-  currentPiece.rotation = 0;
+  const PieceDef* def = &PIECES[index];
 
-  // Center horizontally
-  currentPiece.x = (FIELD_WIDTH - currentPiece.def->width) / 2;
+  memcpy(currentPiece.shape, def->shape, sizeof(currentPiece.shape));
+  currentPiece.width = def->width;
+  currentPiece.height = def->height;
 
-  // Start just above the visible field (so tall pieces don't crash instantly)
-  currentPiece.y = -currentPiece.def->height;
-
-  Serial.print("Spawned piece: ");
-  Serial.println(index);
+  currentPiece.x = (FIELD_WIDTH - currentPiece.width) / 2;
+  currentPiece.y = -currentPiece.height;
 }
+
 
 /**
  * @brief Checks if a piece placed at a specific position would collide
@@ -111,11 +111,18 @@ void tryMove(int dx, int dy) {
   int newX = currentPiece.x + dx;
   int newY = currentPiece.y + dy;
 
-  if (!checkCollision(newX, newY, currentPiece.def)) {
+  // Build a temporary PieceDef from the current piece
+  PieceDef temp;
+  memcpy(temp.shape, currentPiece.shape, sizeof(temp.shape));
+  temp.width = currentPiece.width;
+  temp.height = currentPiece.height;
+
+  if (!checkCollision(newX, newY, &temp)) {
     currentPiece.x = newX;
     currentPiece.y = newY;
   }
 }
+
 
 /**
  * @brief Reads the current button inputs and applies movement or rotation
@@ -145,6 +152,42 @@ void handlePieceControl() {
     //TODO: tryRotate();
   }
 }
+
+void rotateMatrix(const byte src[PIECE_SIZE][PIECE_SIZE], byte dest[PIECE_SIZE][PIECE_SIZE]) {
+  for (byte r = 0; r < PIECE_SIZE; r++) {
+    for (byte c = 0; c < PIECE_SIZE; c++) {
+      dest[c][PIECE_SIZE - 1 - r] = src[r][c];
+    }
+  }
+}
+
+
+void tryRotate() {
+  byte rotated[PIECE_SIZE][PIECE_SIZE];
+  rotateMatrix(currentPiece.shape, rotated);
+
+  // New width and height are swapped
+  byte newWidth = currentPiece.height;
+  byte newHeight = currentPiece.width;
+
+  // Build a temp PieceDef to use with collision checker
+  PieceDef temp;
+  memcpy(temp.shape, rotated, sizeof(rotated));
+  temp.width = newWidth;
+  temp.height = newHeight;
+
+  if (!checkCollision(currentPiece.x, currentPiece.y, &temp)) {
+    memcpy(currentPiece.shape, rotated, sizeof(rotated));
+    currentPiece.width = newWidth;
+    currentPiece.height = newHeight;
+    Serial.println("Rotated successfully");
+  } else {
+    Serial.println("Rotation blocked");
+  }
+}
+
+
+
 
 
 
