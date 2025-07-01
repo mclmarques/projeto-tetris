@@ -1,14 +1,41 @@
 #include <Arduino.h>
 #include <pieces.h>
 #include <LiquidCrystal.h>
+/*
+ * Tetris Game — Arduino Uno
+ * Display: 16x2 LCD mounted vertically (2 columns x 16 rows)
+ * Inputs: 3 buttons (left, right, rotate)
+ * Author: Equipe formada por:
+-> Marcel Marques
+-> Laura Viana
+-> Cauan Moronhe
+-> Giovana Martins
 
-//Buttons pins map
+ * Notes:
+ * - Pin layout for LCD must be defined by hardware team
+ * - Uses LiquidCrystal library for LCD rendering
+ * - Buttons use INPUT_PULLUP mode (active LOW)
+ * - Score resets if no line is cleared in 15 seconds
+ * - Win condition: clear 3 lines
+ * - Game ends if top row is blocked on spawn
+ * - Buzzer hasn't been implemnted. Check number of avail pins 
+ */
+
+
+// Buttons (active LOW w/ INPUT_PULLUP)
 const byte BTN_LEFT = 6;
 const byte BTN_RIGHT = 7;
 const byte BTN_ROTATE = 8;
 
+// LEDs
+const byte LED_1   = 9;   
+const byte LED_2    = 10;  
+const byte LED_3   = 11;  
+
+//TODO: Buzzer
+//const byte buzzer = 12;
+
 //Display. TODO: ALTER AND CONFIGURE FOR THE CORRECT PINS
-// Define pinos do LCD: RS, E, D4, D5, D6, D7
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 
 
@@ -40,35 +67,13 @@ const unsigned long SCORE_TIMEOUT = 15000UL;  // 15 seconds (ms)
 // Stores current falling piece’s shape, rotation, and position on field.
 struct ActivePiece {
   byte shape[PIECE_SIZE][PIECE_SIZE];  // mutable copy from one of the available pieces on the pieces.h
-  byte rotation;             // which of the 4 orientations (0–3)
+  byte rotation;             // which of the 4 orientations (0–3). CURRENTLY UNUSED as rotatinons are done on a separate funciton using matrix
   int x;                     // horizontal position (can be negative)
   int y;                     // vertical position (can be negative)
   byte width;
   byte height;
 };
 ActivePiece currentPiece;
-
-/**
- * @brief Spawns a new random Tetris piece at the top of the field.
- * 
- * Selects a random piece from the PIECES[] array, assigns it to the 
- * global currentPiece variable, and places it horizontally centered 
- * and vertically just above the visible playfield.
- * 
- * This function should be called after a piece has locked or at game start.
- */
-void spawnRandomPiece() {
-  byte index = random(NUM_PIECES);
-  const PieceDef* def = &PIECES[index];
-
-  memcpy(currentPiece.shape, def->shape, sizeof(currentPiece.shape));
-  currentPiece.width = def->width;
-  currentPiece.height = def->height;
-
-  currentPiece.x = (FIELD_WIDTH - currentPiece.width) / 2;
-  currentPiece.y = -currentPiece.height;
-}
-
 
 /**
  * @brief Checks if a piece placed at a specific position would collide
@@ -103,6 +108,44 @@ bool checkCollision(int x, int y, const PieceDef* def) {
 }
 
 /**
+ * @brief Spawns a new random Tetris piece at the top of the field.
+ * 
+ * Selects a random piece from the PIECES[] array, assigns it to the 
+ * global currentPiece variable, and places it horizontally centered 
+ * and vertically just above the visible playfield.
+ * 
+ * This function should be called after a piece has locked or at game start.
+ */
+void spawnRandomPiece() {
+  byte index = random(NUM_PIECES);
+  const PieceDef* def = &PIECES[index];
+
+  // Copy the shape into the working RAM buffer
+  memcpy(currentPiece.shape, def->shape, sizeof(currentPiece.shape));
+  currentPiece.width = def->width;
+  currentPiece.height = def->height;
+
+  // Center horizontally
+  currentPiece.x = (FIELD_WIDTH - currentPiece.width) / 2;
+  currentPiece.y = -currentPiece.height;
+
+  // Check if the new piece is immediately blocked
+  PieceDef temp;
+  memcpy(temp.shape, currentPiece.shape, sizeof(temp.shape));
+  temp.width = currentPiece.width;
+  temp.height = currentPiece.height;
+
+  if (checkCollision(currentPiece.x, currentPiece.y, &temp)) {
+    gameState = STATE_LOST;
+    Serial.println("GAME OVER: piece can't spawn");
+    return;
+  }
+
+  Serial.print("Spawned piece: ");
+  Serial.println(index);
+}
+
+/**
  * @brief Attempts to move the current piece by a delta offset (dx, dy).
  * 
  * @param dx Change in the X direction (e.g., -1 for left, +1 for right).
@@ -127,6 +170,12 @@ void tryMove(int dx, int dy) {
   }
 }
 
+/**
+ * @brief Rotates a square matrix 90 degrees clockwise.
+ * 
+ * @param src  The original matrix (4x4) to rotate.
+ * @param dest The rotated result (4x4), written into this array.
+ */
 void rotateMatrix(const byte src[PIECE_SIZE][PIECE_SIZE], byte dest[PIECE_SIZE][PIECE_SIZE]) {
   for (byte r = 0; r < PIECE_SIZE; r++) {
     for (byte c = 0; c < PIECE_SIZE; c++) {
@@ -266,12 +315,34 @@ void checkScoreTimeout() {
     score = 0;
     lastScoreTime = millis();
     Serial.println("Score reset due to timeout");
+    digitalWrite(LED_1, score >= 1 ? HIGH : LOW);
+    digitalWrite(LED_2, score >= 2 ? HIGH : LOW);
+    digitalWrite(LED_3, score >= 3 ? HIGH : LOW);
   }
 }
 
+// ─────────────────────────────────────────────
+// Helper: control LEDs
+// ─────────────────────────────────────────────
+void updateScoreLEDs() {
+  digitalWrite(LED_1, score >= 1 ? HIGH : LOW);
+  digitalWrite(LED_2, score >= 2 ? HIGH : LOW);
+  digitalWrite(LED_3, score >= 3 ? HIGH : LOW);
+}
+
+
+/**
+ * @brief Renders the entire game field to the LCD.
+ * 
+ * The LCD is mounted vertically, so each row in the Tetris field maps
+ * to a column on the screen. Because the LCD is 16 rows high × 2 cols wide,
+ * we treat this as a rotated board.
+ * 
+ * LCD coordinates: (column = field row, row = field column)
+ */
 void updateDisplay() {
   // Clear previous frame
-  lcd.clear();
+  lcd.clear(); // Note: causes flicker, can be optimized if needed
 
   // For every playfield row (0–15) and column (0–1):
   for (byte r = 0; r < FIELD_HEIGHT; r++) {
@@ -303,11 +374,29 @@ void updateDisplay() {
 
 
 void setup() {
-  //TODO: ADD PIN CONDIGURATION
+    Serial.begin(9600);
+  //TODO: VERIFY CONDIGURATION
+
   lcd.begin(16, 2);
+  // buttons
+  pinMode(BTN_LEFT,   INPUT_PULLUP);
+  pinMode(BTN_RIGHT,  INPUT_PULLUP);
+  pinMode(BTN_ROTATE, INPUT_PULLUP);
+
+  //LEDs
+  pinMode(LED_1, OUTPUT);
+  pinMode(LED_2,  OUTPUT);
+  pinMode(LED_3, OUTPUT);
+  digitalWrite(LED_1, LOW);
+  digitalWrite(LED_2,  LOW);
+  digitalWrite(LED_3, LOW);
+
+  // TODO: check if buzzer has pins left and enable this section
+  //pinMode(buzzer, OUTPUT);
 
   // clear the board & start the first piece
   initField();
+  updateScoreLEDs();  // make sure LEDs reflect score = 0 on boot
   lastScoreTime = millis();
   spawnRandomPiece();
 }
@@ -332,15 +421,15 @@ void loop() {
     lastFall = now;
     // attempt to move down. If blocked, lock the piece
     int newY = currentPiece.y + 1;
-    PieceDef test = {};
+    PieceDef test = {}; // Temporary shape for collision checking
     memcpy(test.shape, currentPiece.shape, sizeof(test.shape));
     test.width  = currentPiece.width;
     test.height = currentPiece.height;
 
     if (!checkCollision(currentPiece.x, newY, &test)) {
-      currentPiece.y = newY;
+      currentPiece.y = newY; // Move piece down
     } else {
-      lockPiece();
+      lockPiece(); // Piece landed, lock it and spawn a new one
     }
   }
   checkScoreTimeout();
